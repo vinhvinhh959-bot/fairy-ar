@@ -1,1 +1,72 @@
 
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bụi tiên AR</title>
+<style>
+:root{--bg:#0b0816;--fg:#f4eefe;--ac:#c9a6ff}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,sans-serif;overflow:hidden}
+canvas{position:fixed;inset:0;width:100%;height:100%;touch-action:none}
+#ui{position:fixed;left:0;right:0;bottom:0;text-align:center;padding:16px 16px calc(16px + env(safe-area-inset-bottom,0px))}
+#box{display:inline-block;max-width:420px;background:rgba(20,12,40,.75);border:1px solid var(--ac);border-radius:16px;padding:14px 18px}
+button{background:var(--ac);color:#1a0f33;border:0;border-radius:999px;padding:10px 22px;font-size:16px;font-weight:600}
+#flip{position:fixed;top:calc(12px + env(safe-area-inset-top,0px));right:12px;padding:8px 14px;font-size:14px}
+p{margin:0 0 10px;font-size:14px;line-height:1.45}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<video id="v" playsinline muted hidden></video>
+<div id="ui"><div id="box">
+<p id="msg">Bật camera: chỗ nào có chuyển động hoặc ánh sáng chói (thử chiếu đèn LED) sẽ nở ra bụi tiên.</p>
+<button id="go">Bật camera</button></div>
+<button id="flip" hidden>⟲ Đổi camera</button></div>
+<script>
+const c=document.getElementById('c'),x=c.getContext('2d'),v=document.getElementById('v'),
+msg=document.getElementById('msg'),go=document.getElementById('go'),box=document.getElementById('box'),flip=document.getElementById('flip');
+let W,H;function rs(){W=c.width=innerWidth;H=c.height=innerHeight}rs();addEventListener('resize',rs);
+const GW=64,GH=48,sc=document.createElement('canvas');sc.width=GW;sc.height=GH;
+const sx=sc.getContext('2d',{willReadFrequently:true});
+let prev=null,cam=false,facing='environment',P=[];const HUES=[290,320,190,48];
+function spawn(px,py,n,big){for(let i=0;i<n&&P.length<900;i++){const a=Math.random()*6.283,s=Math.random()*(big?1.6:.9);
+P.push({x:px+(Math.random()-.5)*14,y:py+(Math.random()-.5)*14,vx:Math.cos(a)*s,vy:Math.sin(a)*s-.5-Math.random()*.6,
+r:1+Math.random()*(big?3.5:2.5),life:1,d:.006+Math.random()*.012,h:HUES[(Math.random()*4)|0],ph:Math.random()*6.28})}}
+async function startCam(){
+if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){msg.textContent='Trình duyệt không hỗ trợ camera. Bạn vẫn có thể chạm và kéo để rắc bụi tiên.';go.hidden=true;return}
+try{if(v.srcObject)v.srcObject.getTracks().forEach(t=>t.stop());
+const s=await navigator.mediaDevices.getUserMedia({video:{facingMode:facing,width:{ideal:1280}},audio:false});
+v.srcObject=s;await v.play();cam=true;prev=null;box.hidden=true;flip.hidden=false}
+catch(e){msg.textContent='Không mở được camera ('+e.name+'). Hãy cho phép quyền camera rồi thử lại.'}}
+go.onclick=startCam;
+flip.onclick=()=>{facing=facing==='environment'?'user':'environment';startCam()};
+const pt=e=>spawn(e.clientX,e.clientY,6,true);
+c.addEventListener('pointerdown',pt);
+c.addEventListener('pointermove',e=>{if(e.buttons||e.pointerType==='touch')pt(e)});
+function frame(){
+x.globalCompositeOperation='source-over';x.fillStyle='#0b0816';x.fillRect(0,0,W,H);
+if(cam&&v.videoWidth){const vw=v.videoWidth,vh=v.videoHeight,k=Math.max(W/vw,H/vh),dw=vw*k,dh=vh*k,dx=(W-dw)/2,dy=(H-dh)/2,mirror=facing==='user';
+x.save();if(mirror){x.translate(W,0);x.scale(-1,1)}x.drawImage(v,dx,dy,dw,dh);x.restore();
+x.fillStyle='rgba(60,20,110,.28)';x.fillRect(0,0,W,H);
+sx.drawImage(v,0,0,GW,GH);const d=sx.getImageData(0,0,GW,GH).data,cur=new Float32Array(GW*GH);
+for(let i=0;i<GW*GH;i++){const l=.3*d[i*4]+.59*d[i*4+1]+.11*d[i*4+2];cur[i]=l;
+const m=prev?Math.abs(l-prev[i]):0,bright=l>243;
+if((m>30&&Math.random()<.5)||(bright&&Math.random()<.6)){let fx=((i%GW)+.5)/GW;if(mirror)fx=1-fx;
+spawn(dx+fx*dw,dy+(((i/GW)|0)+.5)/GH*dh,bright?3:1,bright)}}
+prev=cur}
+x.globalCompositeOperation='lighter';
+for(let i=P.length-1;i>=0;i--){const p=P[i];p.x+=p.vx;p.y+=p.vy;p.vx*=.985;p.vy-=.004;p.life-=p.d;
+if(p.life<=0){P.splice(i,1);continue}
+const a=p.life*(.6+.4*Math.sin(p.ph+p.life*30));
+x.fillStyle=`hsla(${p.h},100%,75%,${a*.18})`;x.beginPath();x.arc(p.x,p.y,p.r*4,0,6.283);x.fill();
+x.fillStyle=`hsla(${p.h},100%,90%,${a})`;x.beginPath();x.arc(p.x,p.y,p.r,0,6.283);x.fill();
+if(p.r>3){x.strokeStyle=`hsla(${p.h},100%,90%,${a})`;x.lineWidth=1;x.beginPath();
+x.moveTo(p.x-p.r*3,p.y);x.lineTo(p.x+p.r*3,p.y);x.moveTo(p.x,p.y-p.r*3);x.lineTo(p.x,p.y+p.r*3);x.stroke()}}
+requestAnimationFrame(frame)}
+frame();
+</script>
+</body>
+</html>
